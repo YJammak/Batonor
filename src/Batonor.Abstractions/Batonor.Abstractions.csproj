@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Batonor.Abstractions</RootNamespace>
+    <AssemblyName>Batonor.Abstractions</AssemblyName>
+    <Description>Batonor workflow engine contracts: activities, workflow model, and plugin SPIs.</Description>
+  </PropertyGroup>
+</Project>

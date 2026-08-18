@@ -1,0 +1,67 @@
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# .NET build artifacts
+artifacts/
+*.nupkg
+*.snupkg
+*.user
+*.userosscache
+*.sln.docstates
+
+# NuGet
+packages/
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.cache
+*.pdb
+*.vspx
+*.sap
+*.aps
+*.ncb
+*.sdf
+*.opensdf
+*.VC.opendb
+
+# Rider
+.idea/
+*.sln.iml
+
+# VS Code
+.vscode/
+
+# Test results
+[Tt]est[Rr]esult*/
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+TestResults/
+
+# Code coverage / analysis
+*.dotCover
+.coveralls.yml
+
+# Publishing (Native AOT output)
+[pP]ublish/
+
+# OS
+.DS_Store
+Thumbs.db

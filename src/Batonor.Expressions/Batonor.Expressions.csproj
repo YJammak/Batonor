@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Batonor.Expressions</RootNamespace>
+    <AssemblyName>Batonor.Expressions</AssemblyName>
+    <Description>Batonor default AOT-safe expression engine: template rendering and condition evaluation.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Batonor.Abstractions\Batonor.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

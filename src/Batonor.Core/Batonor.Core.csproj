@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Batonor.Core</RootNamespace>
+    <AssemblyName>Batonor.Core</AssemblyName>
+    <Description>Batonor workflow engine core: control flow and execution.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Batonor.Abstractions\Batonor.Abstractions.csproj" />
+  </ItemGroup>
+</Project>
