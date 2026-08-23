@@ -1,5 +1,8 @@
 using Batonor.Abstractions;
+using Batonor.Core;
+using Batonor.Expressions;
 using Batonor.Persistence.Sqlite;
+using Microsoft.Data.Sqlite;
 using System.Text.Json.Nodes;
 using Xunit;
 
@@ -67,5 +70,86 @@ public class SqliteWorkflowStoreTests
 
         await store.CompleteDecisionAsync("d1", "yes");
         Assert.Null(await store.LoadPendingDecisionAsync("d1"));
+    }
+
+    [Fact]
+    public async Task Suspended_Instance_Resumes_Across_A_Fresh_Engine_And_Store()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"batonor-{Guid.NewGuid():N}.db");
+        SqliteWorkflowStore? store1 = null, store2 = null;
+        try
+        {
+            store1 = new SqliteWorkflowStore($"Data Source={dbPath}");
+            var engine1 = CreateEngine(store1);
+            RecordActivity.Calls.Clear();
+
+            var suspended = await engine1.StartAsync(BuildDefinition(), null);
+            Assert.Equal(WorkflowStatus.Suspended, suspended.Status);
+            Assert.Equal(new[] { "pre" }, RecordActivity.Calls.ToArray());
+
+            // "Process restart": a brand-new store + engine against the same DB file.
+            store2 = new SqliteWorkflowStore($"Data Source={dbPath}");
+            var engine2 = CreateEngine(store2);
+
+            var pending = (await store2.ListPendingDecisionsAsync()).Single();
+            var completed = await engine2.CompleteDecisionAsync(pending.DecisionId, "yes");
+
+            Assert.Equal(WorkflowStatus.Completed, completed.Status);
+            Assert.Equal(new[] { "pre", "ship" }, RecordActivity.Calls.ToArray());
+        }
+        finally
+        {
+            // Microsoft.Data.Sqlite pools connections by default, and the stores hold their
+            // connections checked out. Dispose the stores so their connections return to the pool,
+            // then clear the pool so the file handle is released and Windows lets us delete it.
+            store2?.Dispose();
+            store1?.Dispose();
+            SqliteConnection.ClearAllPools();
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
+
+    private static WorkflowEngine CreateEngine(IWorkflowStore store)
+    {
+        var activities = new Dictionary<string, IActivity> { ["record"] = new RecordActivity() };
+        return new WorkflowEngine(
+            new DictionaryActivityResolver(activities),
+            new ConditionEvaluator(),
+            new TemplateEngine(),
+            store);
+    }
+
+    private static WorkflowDefinition BuildDefinition()
+    {
+        return new WorkflowDefinition
+        {
+            Id = "order",
+            Version = 1,
+            Steps = new[]
+            {
+                new WorkflowNode { Id = "seq", Type = "sequence", Config = new JsonObject
+                {
+                    ["steps"] = new JsonArray(JsonValue.Create("pre"), JsonValue.Create("approve")),
+                }},
+                new WorkflowNode { Id = "pre", Type = "record", Config = new JsonObject { ["value"] = "pre" } },
+                new WorkflowNode { Id = "approve", Type = "decision", Config = new JsonObject
+                {
+                    ["prompt"] = "Approve?",
+                    ["options"] = new JsonArray(new JsonObject { ["label"] = "Yes", ["value"] = "yes", ["isDefault"] = true }),
+                    ["branches"] = new JsonObject { ["yes"] = "ship", ["default"] = "ship" },
+                }},
+                new WorkflowNode { Id = "ship", Type = "record", Config = new JsonObject { ["value"] = "ship" } },
+            },
+        };
+    }
+
+    private sealed class RecordActivity : IActivity
+    {
+        public static readonly List<string> Calls = new();
+        public ValueTask<object?> ExecuteAsync(IActivityContext context, CancellationToken ct)
+        {
+            Calls.Add(context.Input?["value"]?.GetValue<string>() ?? "");
+            return ValueTask.FromResult<object?>(null);
+        }
     }
 }
