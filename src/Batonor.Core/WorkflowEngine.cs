@@ -123,6 +123,90 @@ public sealed class WorkflowEngine
         return instance;
     }
 
+    /// <summary>
+    /// Resumes a suspended decision with a human choice and continues the workflow from its saved
+    /// execution position. The definition snapshot taken from the instance is used, never a newer
+    /// published version.
+    /// </summary>
+    public async Task<WorkflowInstance> CompleteDecisionAsync(
+        string decisionId,
+        string choice,
+        ClaimsPrincipal? principal = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (_store is null)
+        {
+            throw new BatonorException("A workflow store is required to resume a decision.");
+        }
+
+        var pending = await _store.LoadPendingDecisionAsync(decisionId, cancellationToken)
+            ?? throw new BatonorException($"Unknown pending decision '{decisionId}'.");
+
+        var instance = await _store.LoadInstanceAsync(pending.InstanceId, cancellationToken)
+            ?? throw new BatonorException($"Instance '{pending.InstanceId}' not found.");
+
+        var definition = instance.Definition
+            ?? throw new BatonorException($"Instance '{pending.InstanceId}' has no definition snapshot.");
+
+        var index = BuildIndex(definition);
+
+        // Reject an unrecognised human choice (a caller error, not a workflow failure).
+        if (!IsValidChoice(index[pending.NodeId], choice))
+        {
+            throw new BatonorException(
+                $"Choice '{choice}' is not a valid option for decision node '{pending.NodeId}'.");
+        }
+
+        var context = new ExecutionContext(instance.InstanceId, _activities, _expressions, _templates, _services);
+        context.Restore(instance.Variables);
+
+        var pendingChoices = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [decisionId] = choice,
+        };
+
+        SuspendInfo? suspend = null;
+        try
+        {
+            var rootFrame = instance.Position
+                ?? throw new BatonorException($"Instance '{instance.InstanceId}' is not suspended at a position.");
+
+            suspend = await RunNodeAsync(index[rootFrame.NodeId], index, context, cancellationToken, rootFrame, pendingChoices);
+
+            if (suspend is null)
+            {
+                instance.Status = WorkflowStatus.Completed;
+                instance.Position = null;
+            }
+            else
+            {
+                instance.Status = WorkflowStatus.Suspended;
+                instance.Position = suspend.Position;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            instance.Status = WorkflowStatus.Cancelled;
+        }
+        catch (Exception ex)
+        {
+            instance.Status = WorkflowStatus.Failed;
+            instance.Error = ex.Message;
+            instance.Position = null;
+        }
+
+        instance.Variables = context.Snapshot();
+        await _store.CompleteDecisionAsync(decisionId, choice, cancellationToken);
+
+        if (suspend is not null && instance.Status == WorkflowStatus.Suspended)
+        {
+            await _store.SavePendingDecisionAsync(suspend.Decision, cancellationToken);
+        }
+
+        await _store.SaveInstanceAsync(instance, cancellationToken);
+        return instance;
+    }
+
     private async Task<SuspendInfo?> RunNodeAsync(
         WorkflowNode node,
         IReadOnlyDictionary<string, WorkflowNode> index,

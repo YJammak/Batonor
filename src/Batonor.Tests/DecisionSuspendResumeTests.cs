@@ -82,4 +82,68 @@ public class DecisionSuspendResumeTests
         // 'pre' ran and wrote its output; the decision never ran a branch.
         Assert.Equal(new[] { "pre" }, RecordActivity.Calls.ToArray());
     }
+
+    [Fact]
+    public async Task CompleteDecision_Resumes_And_Continues_Sequence()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var instance = await engine.StartAsync(BuildDefinition(), null);
+        Assert.Equal(WorkflowStatus.Suspended, instance.Status);
+
+        var pending = (await store.ListPendingDecisionsAsync()).Single();
+        var resumed = await engine.CompleteDecisionAsync(pending.DecisionId, "yes");
+
+        Assert.Equal(WorkflowStatus.Completed, resumed.Status);
+        Assert.Null(resumed.Position);
+        Assert.Equal(new[] { "pre", "ship" }, RecordActivity.Calls.ToArray());
+    }
+
+    [Fact]
+    public async Task CompleteDecision_Reject_Goes_To_Default_Branch()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var instance = await engine.StartAsync(BuildDefinition(), null);
+        var pending = (await store.ListPendingDecisionsAsync()).Single();
+
+        var resumed = await engine.CompleteDecisionAsync(pending.DecisionId, "no");
+
+        Assert.Equal(WorkflowStatus.Completed, resumed.Status);
+        Assert.Equal(new[] { "pre", "cancel" }, RecordActivity.Calls.ToArray());
+    }
+
+    [Fact]
+    public async Task Suspend_Without_Store_Throws()
+    {
+        // 'record' must be registered so the workflow reaches the decision node; only then does
+        // the absence of a store surface as a throw (the test's intent).
+        var engine = new WorkflowEngine(
+            new DictionaryActivityResolver(new Dictionary<string, IActivity> { ["record"] = new RecordActivity() }),
+            new ConditionEvaluator(),
+            new TemplateEngine());
+
+        await Assert.ThrowsAsync<BatonorException>(() => engine.StartAsync(BuildDefinition(), null));
+    }
+
+    [Fact]
+    public async Task CompleteDecision_Illegal_Choice_Throws()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+
+        var instance = await engine.StartAsync(BuildDefinition(), null);
+        var pending = (await store.ListPendingDecisionsAsync()).Single();
+
+        await Assert.ThrowsAsync<BatonorException>(
+            () => engine.CompleteDecisionAsync(pending.DecisionId, "not-an-option"));
+
+        // The invalid choice must not fail the instance; it stays suspended in the store.
+        var again = await store.LoadInstanceAsync(instance.InstanceId);
+        Assert.Equal(WorkflowStatus.Suspended, again!.Status);
+    }
 }
