@@ -16,6 +16,12 @@ public sealed class WorkflowInstance
     /// <summary>Current workflow variables.</summary>
     public JsonObject? Variables { get; set; }
 
+    /// <summary>
+    /// Execution position when <see cref="Status"/> is <see cref="WorkflowStatus.Suspended"/>.
+    /// Null for instances that have never suspended.
+    /// </summary>
+    public ExecutionPosition? Position { get; set; }
+
     /// <summary>Error message when <see cref="Status"/> is <see cref="WorkflowStatus.Failed"/>.</summary>
     public string? Error { get; set; }
 
