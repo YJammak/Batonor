@@ -24,6 +24,7 @@
     <ProjectReference Include="..\Batonor.Expressions\Batonor.Expressions.csproj" />
     <ProjectReference Include="..\Batonor.Json\Batonor.Json.csproj" />
     <ProjectReference Include="..\Batonor.Persistence.InMemory\Batonor.Persistence.InMemory.csproj" />
+    <ProjectReference Include="..\Batonor.Persistence.Sqlite\Batonor.Persistence.Sqlite.csproj" />
   </ItemGroup>
 
 </Project>
