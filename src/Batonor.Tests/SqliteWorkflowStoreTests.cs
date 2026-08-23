@@ -73,6 +73,17 @@ public class SqliteWorkflowStoreTests
     }
 
     [Fact]
+    public async Task Load_After_Dispose_Throws_And_Dispose_Is_Idempotent()
+    {
+        var store = CreateStore();
+
+        store.Dispose();
+        store.Dispose(); // idempotent: a second Dispose must not throw
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => store.LoadInstanceAsync("x"));
+    }
+
+    [Fact]
     public async Task Suspended_Instance_Resumes_Across_A_Fresh_Engine_And_Store()
     {
         var dbPath = Path.Combine(Path.GetTempPath(), $"batonor-{Guid.NewGuid():N}.db");

@@ -14,6 +14,7 @@ public sealed class SqliteWorkflowStore : IWorkflowStore, IDisposable
     private readonly string _connectionString;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SqliteConnection? _connection;
+    private volatile bool _disposed;
 
     public SqliteWorkflowStore(string connectionString) => _connectionString = connectionString;
 
@@ -21,11 +22,22 @@ public sealed class SqliteWorkflowStore : IWorkflowStore, IDisposable
     {
         get
         {
+            if (_disposed) throw new ObjectDisposedException(nameof(SqliteWorkflowStore));
+
             if (_connection is null)
             {
-                _connection = new SqliteConnection(_connectionString);
-                _connection.Open();
-                CreateTables(_connection);
+                var conn = new SqliteConnection(_connectionString);
+                try
+                {
+                    conn.Open();
+                    CreateTables(conn);
+                    _connection = conn;
+                }
+                catch
+                {
+                    conn.Dispose();
+                    throw;
+                }
             }
 
             return _connection;
@@ -222,8 +234,17 @@ public sealed class SqliteWorkflowStore : IWorkflowStore, IDisposable
 
     public void Dispose()
     {
-        _connection?.Dispose();
-        _connection = null;
-        _gate.Dispose();
+        _gate.Wait();
+        try
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _connection?.Dispose();
+            _connection = null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 }
