@@ -236,4 +236,123 @@ public class DecisionSuspendResumeTests
         Assert.Equal(WorkflowStatus.Completed, s3.Status);
         Assert.Equal(new[] { "a1", "a2" }, RecordActivity.Calls.ToArray());
     }
+
+    [Fact]
+    public async Task CompletedAt_Is_Set_On_The_Completed_Instance()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var instance = await engine.StartAsync(BuildDefinition(), null);
+        Assert.Equal(WorkflowStatus.Suspended, instance.Status);
+        Assert.Null(instance.CompletedAt); // still suspended, not completed yet
+
+        var pending = (await store.ListPendingDecisionsAsync()).Single();
+        var resumed = await engine.CompleteDecisionAsync(pending.DecisionId, "yes");
+
+        Assert.Equal(WorkflowStatus.Completed, resumed.Status);
+        Assert.NotNull(resumed.CompletedAt);
+    }
+
+    [Fact]
+    public async Task NonSuspending_Sequence_Runs_Each_Step_Exactly_Once()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var def = new WorkflowDefinition
+        {
+            Id = "seq-only",
+            Version = 1,
+            Steps = new[]
+            {
+                new WorkflowNode { Id = "seq", Type = "sequence", Config = new JsonObject
+                {
+                    ["steps"] = new JsonArray(JsonValue.Create("a"), JsonValue.Create("b")),
+                }},
+                new WorkflowNode { Id = "a", Type = "record", Config = new JsonObject { ["value"] = "a" } },
+                new WorkflowNode { Id = "b", Type = "record", Config = new JsonObject { ["value"] = "b" } },
+            },
+        };
+
+        var instance = await engine.StartAsync(def, null);
+
+        Assert.Equal(WorkflowStatus.Completed, instance.Status);
+        // Without the GetTargetIds root fix, 'a' and 'b' would be misclassified as roots and
+        // executed a second time after the sequence, yielding ["a","b","a","b"].
+        Assert.Equal(new[] { "a", "b" }, RecordActivity.Calls.ToArray());
+        Assert.Equal(2, RecordActivity.Calls.Count);
+    }
+
+    [Fact]
+    public async Task Decision_Inside_Parallel_Branch_Throws_NotSupported()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var def = new WorkflowDefinition
+        {
+            Id = "parallel-decision",
+            Version = 1,
+            Steps = new[]
+            {
+                new WorkflowNode { Id = "p", Type = "parallel", Config = new JsonObject
+                {
+                    ["branches"] = new JsonArray(
+                        new JsonArray(JsonValue.Create("ask"))),
+                }},
+                new WorkflowNode { Id = "ask", Type = "decision", Config = new JsonObject
+                {
+                    ["prompt"] = "Proceed?",
+                    ["options"] = new JsonArray(new JsonObject { ["label"] = "Yes", ["value"] = "yes", ["isDefault"] = true }),
+                    ["branches"] = new JsonObject { ["yes"] = "done", ["default"] = "done" },
+                }},
+                new WorkflowNode { Id = "done", Type = "record", Config = new JsonObject { ["value"] = "done" } },
+            },
+        };
+
+        // The scoped-out guard must surface to the caller, not become a Failed instance.
+        await Assert.ThrowsAsync<NotSupportedException>(() => engine.StartAsync(def, null));
+    }
+
+    [Fact]
+    public async Task Decision_Unknown_Choice_Falls_Back_To_Default_Branch()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        // 'no' is a declared option but has no matching branch key, so the route falls through
+        // to branches["default"].
+        var def = new WorkflowDefinition
+        {
+            Id = "default-fallback",
+            Version = 1,
+            Steps = new[]
+            {
+                new WorkflowNode { Id = "ask", Type = "decision", Config = new JsonObject
+                {
+                    ["prompt"] = "Proceed?",
+                    ["options"] = new JsonArray(
+                        new JsonObject { ["label"] = "Yes", ["value"] = "yes", ["isDefault"] = true },
+                        new JsonObject { ["label"] = "No", ["value"] = "no" }),
+                    ["branches"] = new JsonObject { ["yes"] = "ship", ["default"] = "cancel" },
+                }},
+                new WorkflowNode { Id = "ship", Type = "record", Config = new JsonObject { ["value"] = "ship" } },
+                new WorkflowNode { Id = "cancel", Type = "record", Config = new JsonObject { ["value"] = "cancel" } },
+            },
+        };
+
+        var suspended = await engine.StartAsync(def, null);
+        Assert.Equal(WorkflowStatus.Suspended, suspended.Status);
+
+        var pending = (await store.ListPendingDecisionsAsync()).Single();
+        var resumed = await engine.CompleteDecisionAsync(pending.DecisionId, "no");
+
+        Assert.Equal(WorkflowStatus.Completed, resumed.Status);
+        Assert.Equal(new[] { "cancel" }, RecordActivity.Calls.ToArray());
+    }
 }

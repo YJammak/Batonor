@@ -81,6 +81,7 @@ public sealed class WorkflowEngine
             if (suspend is null)
             {
                 instance.Status = WorkflowStatus.Completed;
+                instance.CompletedAt = DateTimeOffset.UtcNow;
             }
             else
             {
@@ -103,6 +104,12 @@ public sealed class WorkflowEngine
         {
             // Domain errors (bad definition, missing activity, no store) are surfaced to the caller;
             // only unexpected runtime failures are captured as a failed instance.
+            throw;
+        }
+        catch (NotSupportedException)
+        {
+            // Scoped-out constructs (e.g. a decision inside a parallel branch) surface as a throw,
+            // not as a failed instance.
             throw;
         }
         catch (Exception ex)
@@ -176,6 +183,7 @@ public sealed class WorkflowEngine
             if (suspend is null)
             {
                 instance.Status = WorkflowStatus.Completed;
+                instance.CompletedAt = DateTimeOffset.UtcNow;
                 instance.Position = null;
             }
             else
@@ -187,6 +195,18 @@ public sealed class WorkflowEngine
         catch (OperationCanceledException)
         {
             instance.Status = WorkflowStatus.Cancelled;
+        }
+        catch (BatonorException)
+        {
+            // Domain errors (bad definition, missing activity, invalid branch) surface to the caller;
+            // only unexpected runtime failures are captured as a failed instance.
+            throw;
+        }
+        catch (NotSupportedException)
+        {
+            // Scoped-out constructs (e.g. a decision inside a parallel branch) surface as a throw,
+            // not as a failed instance.
+            throw;
         }
         catch (Exception ex)
         {
@@ -365,7 +385,11 @@ public sealed class WorkflowEngine
         var join = ParseJoin(node);
         if (join == JoinMode.Any)
         {
-            await Task.WhenAny(tasks).ConfigureAwait(false);
+            // WhenAny itself never throws; observe the first-completed task so a faulted branch
+            // (e.g. the decision-in-parallel guard) surfaces to the caller rather than being
+            // silently ignored.
+            var completed = await Task.WhenAny(tasks).ConfigureAwait(false);
+            await completed.ConfigureAwait(false);
         }
         else
         {
@@ -594,6 +618,19 @@ public sealed class WorkflowEngine
     {
         switch (node.Type)
         {
+            case "sequence":
+                if (node.Config?["steps"] is JsonArray steps)
+                {
+                    foreach (var step in steps)
+                    {
+                        if (step is JsonValue sv && sv.TryGetValue<string>(out var stepId))
+                        {
+                            yield return stepId;
+                        }
+                    }
+                }
+                break;
+
             case "choice":
                 if (node.Config?["branches"] is JsonArray branches)
                 {
@@ -603,6 +640,19 @@ public sealed class WorkflowEngine
                         if (target is not null)
                         {
                             yield return target;
+                        }
+                    }
+                }
+                break;
+
+            case "decision":
+                if (node.Config?["branches"] is JsonObject decisionBranches)
+                {
+                    foreach (var branch in decisionBranches)
+                    {
+                        if (branch.Value is JsonValue dv && dv.TryGetValue<string>(out var id))
+                        {
+                            yield return id;
                         }
                     }
                 }
