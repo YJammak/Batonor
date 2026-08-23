@@ -146,4 +146,94 @@ public class DecisionSuspendResumeTests
         var again = await store.LoadInstanceAsync(instance.InstanceId);
         Assert.Equal(WorkflowStatus.Suspended, again!.Status);
     }
+
+    [Fact]
+    public async Task Decision_Nested_In_Choice_Resumes_And_Can_Resuspend()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var def = new WorkflowDefinition
+        {
+            Id = "nested",
+            Version = 1,
+            Steps = new[]
+            {
+                new WorkflowNode { Id = "gate", Type = "choice", Config = new JsonObject
+                {
+                    ["branches"] = new JsonArray(
+                        new JsonObject { ["when"] = "${input.go} == 'true'", ["then"] = "ask" }),
+                }},
+                new WorkflowNode { Id = "ask", Type = "decision", Config = new JsonObject
+                {
+                    ["prompt"] = "Proceed?",
+                    ["options"] = new JsonArray(
+                        new JsonObject { ["label"] = "Yes", ["value"] = "go", ["isDefault"] = true },
+                        new JsonObject { ["label"] = "Stop", ["value"] = "stop" }),
+                    ["branches"] = new JsonObject { ["go"] = "done", ["stop"] = "halt" },
+                }},
+                new WorkflowNode { Id = "done", Type = "record", Config = new JsonObject { ["value"] = "done" } },
+                new WorkflowNode { Id = "halt", Type = "record", Config = new JsonObject { ["value"] = "halt" } },
+            },
+        };
+
+        var s1 = await engine.StartAsync(def, new JsonObject { ["go"] = "true" });
+        Assert.Equal(WorkflowStatus.Suspended, s1.Status);
+        Assert.Equal("gate", s1.Position!.NodeId);
+        Assert.Equal("ask", s1.Position!.Child!.NodeId);
+
+        var p1 = (await store.ListPendingDecisionsAsync()).Single();
+        var s2 = await engine.CompleteDecisionAsync(p1.DecisionId, "go");
+        Assert.Equal(WorkflowStatus.Completed, s2.Status);
+        Assert.Equal(new[] { "done" }, RecordActivity.Calls.ToArray());
+    }
+
+    [Fact]
+    public async Task Two_Decisions_Sequentially_Suspend_Twice()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var def = new WorkflowDefinition
+        {
+            Id = "two",
+            Version = 1,
+            Steps = new[]
+            {
+                new WorkflowNode { Id = "s", Type = "sequence", Config = new JsonObject
+                {
+                    ["steps"] = new JsonArray(JsonValue.Create("ask1"), JsonValue.Create("ask2")),
+                }},
+                new WorkflowNode { Id = "ask1", Type = "decision", Config = new JsonObject
+                {
+                    ["prompt"] = "First?",
+                    ["options"] = new JsonArray(new JsonObject { ["label"] = "Y", ["value"] = "y", ["isDefault"] = true }),
+                    ["branches"] = new JsonObject { ["y"] = "a1", ["default"] = "a1" },
+                }},
+                new WorkflowNode { Id = "a1", Type = "record", Config = new JsonObject { ["value"] = "a1" } },
+                new WorkflowNode { Id = "ask2", Type = "decision", Config = new JsonObject
+                {
+                    ["prompt"] = "Second?",
+                    ["options"] = new JsonArray(new JsonObject { ["label"] = "Y", ["value"] = "y", ["isDefault"] = true }),
+                    ["branches"] = new JsonObject { ["y"] = "a2", ["default"] = "a2" },
+                }},
+                new WorkflowNode { Id = "a2", Type = "record", Config = new JsonObject { ["value"] = "a2" } },
+            },
+        };
+
+        var s1 = await engine.StartAsync(def, null);
+        Assert.Equal(WorkflowStatus.Suspended, s1.Status);
+
+        var p1 = (await store.ListPendingDecisionsAsync()).Single();
+        var s2 = await engine.CompleteDecisionAsync(p1.DecisionId, "y");
+        Assert.Equal(WorkflowStatus.Suspended, s2.Status);
+        Assert.Equal(new[] { "a1" }, RecordActivity.Calls.ToArray());
+
+        var p2 = (await store.ListPendingDecisionsAsync()).Single(p => p.NodeId == "ask2");
+        var s3 = await engine.CompleteDecisionAsync(p2.DecisionId, "y");
+        Assert.Equal(WorkflowStatus.Completed, s3.Status);
+        Assert.Equal(new[] { "a1", "a2" }, RecordActivity.Calls.ToArray());
+    }
 }
