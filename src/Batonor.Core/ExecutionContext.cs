@@ -75,4 +75,17 @@ internal sealed class ExecutionContext
     public bool Evaluate(string expression) => _expressions.Evaluate(expression, _scope);
 
     public IActivity? ResolveActivity(string name) => _activities.Resolve(name);
+
+    /// <summary>Rebuilds the scope from a persisted snapshot (used when resuming an instance).</summary>
+    public void Restore(JsonObject? variables)
+    {
+        _scope.Clear();
+        if (variables is not null)
+        {
+            foreach (var (name, value) in variables)
+            {
+                _scope[name] = value?.DeepClone();
+            }
+        }
+    }
 }
