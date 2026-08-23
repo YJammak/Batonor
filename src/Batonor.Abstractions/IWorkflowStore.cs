@@ -18,4 +18,10 @@ public interface IWorkflowStore
     Task<IReadOnlyList<PendingDecision>> ListPendingDecisionsAsync(CancellationToken cancellationToken = default);
 
     Task CompleteDecisionAsync(string decisionId, string choice, CancellationToken cancellationToken = default);
+
+    /// <summary>Persists a newly-suspended decision so it can be resumed later.</summary>
+    Task SavePendingDecisionAsync(PendingDecision decision, CancellationToken cancellationToken = default);
+
+    /// <summary>Loads a single pending decision by its id, or null if it does not exist.</summary>
+    Task<PendingDecision?> LoadPendingDecisionAsync(string decisionId, CancellationToken cancellationToken = default);
 }

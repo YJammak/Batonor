@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Batonor.Persistence.InMemory</RootNamespace>
+    <AssemblyName>Batonor.Persistence.InMemory</AssemblyName>
+    <Description>In-memory workflow store for tests and short-lived runs.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Batonor.Abstractions\Batonor.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

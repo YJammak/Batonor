@@ -2,5 +2,6 @@
   <Project Path="Batonor.Abstractions/Batonor.Abstractions.csproj" />
   <Project Path="Batonor.Core/Batonor.Core.csproj" />
   <Project Path="Batonor.Expressions/Batonor.Expressions.csproj" />
+  <Project Path="Batonor.Persistence.InMemory/Batonor.Persistence.InMemory.csproj" />
   <Project Path="Batonor.Tests/Batonor.Tests.csproj" />
 </Solution>

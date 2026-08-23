@@ -22,6 +22,7 @@
     <ProjectReference Include="..\Batonor.Abstractions\Batonor.Abstractions.csproj" />
     <ProjectReference Include="..\Batonor.Core\Batonor.Core.csproj" />
     <ProjectReference Include="..\Batonor.Expressions\Batonor.Expressions.csproj" />
+    <ProjectReference Include="..\Batonor.Persistence.InMemory\Batonor.Persistence.InMemory.csproj" />
   </ItemGroup>
 
 </Project>
