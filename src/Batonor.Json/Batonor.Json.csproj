@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Batonor.Json</RootNamespace>
+    <AssemblyName>Batonor.Json</AssemblyName>
+    <Description>Batonor System.Text.Json source-generated serialization context and serializer adapter.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Batonor.Abstractions\Batonor.Abstractions.csproj" />
+  </ItemGroup>
+</Project>
