@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Batonor.Abstractions;
 
@@ -900,6 +899,8 @@ public sealed class WorkflowEngine
 
     private static JsonNode? ToJsonNode(object? value)
     {
+        // AOT-safe conversion: activities must produce a JsonNode or a JSON primitive. The previous
+        // `JsonSerializer.SerializeToNode(object)` fallback used reflection and is not AOT-safe.
         return value switch
         {
             null => null,
@@ -908,9 +909,11 @@ public sealed class WorkflowEngine
             bool b => JsonValue.Create(b),
             int i => JsonValue.Create(i),
             long l => JsonValue.Create(l),
+            float f => JsonValue.Create(f),
             double d => JsonValue.Create(d),
             decimal m => JsonValue.Create(m),
-            _ => JsonSerializer.SerializeToNode(value),
+            _ => throw new BatonorException(
+                $"Activity output of type '{value.GetType()}' is not serializable; return a JsonNode or a JSON primitive."),
         };
     }
 }
