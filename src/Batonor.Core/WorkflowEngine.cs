@@ -216,7 +216,6 @@ public sealed class WorkflowEngine
         }
 
         instance.Variables = context.Snapshot();
-        await _store.CompleteDecisionAsync(decisionId, choice, cancellationToken);
 
         if (suspend is not null && instance.Status == WorkflowStatus.Suspended)
         {
@@ -224,6 +223,7 @@ public sealed class WorkflowEngine
         }
 
         await _store.SaveInstanceAsync(instance, cancellationToken);
+        await _store.CompleteDecisionAsync(decisionId, choice, cancellationToken);
         return instance;
     }
 
