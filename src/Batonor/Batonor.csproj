@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Batonor</RootNamespace>
+    <AssemblyName>Batonor</AssemblyName>
+    <Description>Batonor facade: DI-agnostic builder entry point.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Batonor.Abstractions\Batonor.Abstractions.csproj" />
+    <ProjectReference Include="..\Batonor.Activities\Batonor.Activities.csproj" />
+    <ProjectReference Include="..\Batonor.Core\Batonor.Core.csproj" />
+    <ProjectReference Include="..\Batonor.Expressions\Batonor.Expressions.csproj" />
+    <ProjectReference Include="..\Batonor.Persistence.InMemory\Batonor.Persistence.InMemory.csproj" />
+    <ProjectReference Include="..\Batonor.Persistence.Sqlite\Batonor.Persistence.Sqlite.csproj" />
+  </ItemGroup>
+</Project>
