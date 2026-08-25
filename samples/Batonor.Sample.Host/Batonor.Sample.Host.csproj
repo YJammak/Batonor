@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Batonor.Sample.Host</RootNamespace>
+    <AssemblyName>Batonor.Sample.Host</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Batonor.Abstractions\Batonor.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Batonor.Core\Batonor.Core.csproj" />
+    <ProjectReference Include="..\..\src\Batonor.Expressions\Batonor.Expressions.csproj" />
+    <ProjectReference Include="..\..\src\Batonor.Json\Batonor.Json.csproj" />
+    <ProjectReference Include="..\..\src\Batonor.Persistence.Sqlite\Batonor.Persistence.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\Batonor.SourceGen\Batonor.SourceGen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
+  </ItemGroup>
+</Project>
