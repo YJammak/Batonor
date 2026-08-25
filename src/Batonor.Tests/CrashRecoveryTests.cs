@@ -225,6 +225,7 @@ public class CrashRecoveryTests
     {
         private readonly InMemoryWorkflowStore _inner = new();
         public bool SawRunningSave { get; private set; }
+        public List<ExecutionPosition?> RunningPositions { get; } = new();
 
         public Task SaveDefinitionAsync(WorkflowDefinition definition, CancellationToken ct = default) =>
             _inner.SaveDefinitionAsync(definition, ct);
@@ -234,7 +235,12 @@ public class CrashRecoveryTests
 
         public async Task SaveInstanceAsync(WorkflowInstance instance, CancellationToken ct = default)
         {
-            if (instance.Status == WorkflowStatus.Running) SawRunningSave = true;
+            if (instance.Status == WorkflowStatus.Running)
+            {
+                SawRunningSave = true;
+                RunningPositions.Add(instance.Position);
+            }
+
             await _inner.SaveInstanceAsync(instance, ct);
         }
 
@@ -252,6 +258,57 @@ public class CrashRecoveryTests
 
         public Task<PendingDecision?> LoadPendingDecisionAsync(string decisionId, CancellationToken ct = default) =>
             _inner.LoadPendingDecisionAsync(decisionId, ct);
+    }
+
+    private static string Terminal(ExecutionPosition? position)
+    {
+        while (position?.Child is not null)
+        {
+            position = position.Child;
+        }
+
+        return position?.NodeId ?? "";
+    }
+
+    [Fact]
+    public async Task CompleteDecision_Checkpoints_Position_At_Routed_Branch()
+    {
+        var store = new RecordingStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var def = new WorkflowDefinition
+        {
+            Id = "decision-crash",
+            Version = 1,
+            Steps = new[]
+            {
+                new WorkflowNode { Id = "seq", Type = "sequence", Config = new JsonObject
+                { ["steps"] = new JsonArray(JsonValue.Create("pre"), JsonValue.Create("approve")) }},
+                new WorkflowNode { Id = "pre", Type = "record", Config = new JsonObject { ["value"] = "pre" } },
+                new WorkflowNode { Id = "approve", Type = "decision", Config = new JsonObject
+                {
+                    ["prompt"] = "Approve?",
+                    ["options"] = new JsonArray(new JsonObject { ["label"] = "Yes", ["value"] = "yes", ["isDefault"] = true }),
+                    ["branches"] = new JsonObject { ["yes"] = "ship", ["no"] = "cancel", ["default"] = "cancel" },
+                }},
+                new WorkflowNode { Id = "ship", Type = "record", Config = new JsonObject { ["value"] = "ship" } },
+                new WorkflowNode { Id = "cancel", Type = "record", Config = new JsonObject { ["value"] = "cancel" } },
+            },
+        };
+
+        var suspended = await engine.StartAsync(def, null);
+        Assert.Equal(WorkflowStatus.Suspended, suspended.Status);
+
+        var pending = (await store.ListPendingDecisionsAsync()).Single();
+        await engine.CompleteDecisionAsync(pending.DecisionId, "yes");
+
+        // The crash checkpoint written while the routed "ship" branch executes must point at the
+        // routed activity ("ship"), not at the "approve" decision node. If it pointed at the decision,
+        // a crash during "ship" would re-consult the decision on recovery and fall back to the default
+        // branch ("cancel") — turning an approval into a cancellation.
+        Assert.Contains(store.RunningPositions, p => Terminal(p) == "ship");
+        Assert.DoesNotContain(store.RunningPositions, p => Terminal(p) == "approve");
     }
 
     [Fact]

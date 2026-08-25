@@ -496,6 +496,12 @@ public sealed class WorkflowEngine
         return null;
     }
 
+    /// <summary>
+    /// Runs a <c>parallel</c> node's branches. Note: the single-instance <see cref="checkpointPosition"/>
+    /// is threaded through unchanged to every branch, so concurrent branches intentionally share the one
+    /// checkpoint path on the instance. Branch-aware per-branch checkpointing is intentionally out of
+    /// scope for now (future work) and would require a position model that can fork per branch.
+    /// </summary>
     private async Task<SuspendInfo?> RunParallelAsync(
         WorkflowNode node,
         IReadOnlyDictionary<string, WorkflowNode> index,
@@ -540,6 +546,8 @@ public sealed class WorkflowEngine
         bool isRecovery,
         ExecutionPosition? checkpointPosition)
     {
+        // Each branch reuses the shared checkpointPosition on the single instance; there is no
+        // per-branch position today (see RunParallelAsync for why that is out of scope).
         foreach (var step in branch)
         {
             if (step is JsonValue v && v.TryGetValue<string>(out var id))
@@ -592,7 +600,12 @@ public sealed class WorkflowEngine
             return null;
         }
 
-        return await RunNodeByIdAsync(route, index, context, cancellationToken, null, pendingChoices, instance, isRecovery, checkpointPosition);
+        // Route the checkpoint to the chosen branch activity rather than leaving it pointing at the
+        // decision node. On a crash after the choice was made, recovery then resumes the routed
+        // activity directly and never re-consults this decision (which would otherwise fall through
+        // to the default branch and run the wrong one).
+        var routedCheckpoint = checkpointPosition is null ? Leaf(route) : ReplaceTerminal(checkpointPosition, Leaf(route));
+        return await RunNodeByIdAsync(route, index, context, cancellationToken, null, pendingChoices, instance, isRecovery, routedCheckpoint);
     }
 
     private static PendingDecision CreatePendingDecision(WorkflowNode node, ExecutionContext context, JsonObject config)
@@ -674,6 +687,11 @@ public sealed class WorkflowEngine
             return;
         }
 
+        // Resolve the activity before persisting any Running checkpoint, so a missing/unregistered
+        // activity surfaces as a definition error rather than leaving a stale recoverable snapshot.
+        var activity = context.ResolveActivity(node.Type)
+            ?? throw new ActivityNotFoundException(node.Type);
+
         // Checkpoint the Running state before executing, so a crash mid-activity leaves a
         // recoverable Running snapshot whose Position points at the activity about to run.
         if (_store is not null)
@@ -683,9 +701,6 @@ public sealed class WorkflowEngine
             instance.Position = checkpointPosition;
             await _store.SaveInstanceAsync(instance, cancellationToken);
         }
-
-        var activity = context.ResolveActivity(node.Type)
-            ?? throw new ActivityNotFoundException(node.Type);
 
         var input = ResolveConfig(node.Config, context);
         var attemptId = BuildAttemptId(context, node.Id);
