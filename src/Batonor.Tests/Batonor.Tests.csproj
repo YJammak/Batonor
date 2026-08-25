@@ -28,7 +28,7 @@
     <ProjectReference Include="..\Batonor.Json\Batonor.Json.csproj" />
     <ProjectReference Include="..\Batonor.Persistence.InMemory\Batonor.Persistence.InMemory.csproj" />
     <ProjectReference Include="..\Batonor.Persistence.Sqlite\Batonor.Persistence.Sqlite.csproj" />
-    <ProjectReference Include="..\Batonor.SourceGen\Batonor.SourceGen.csproj" />
+    <ProjectReference Include="..\Batonor.SourceGen\Batonor.SourceGen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
   </ItemGroup>
 
 </Project>
