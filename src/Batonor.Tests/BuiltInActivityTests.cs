@@ -72,4 +72,31 @@ public class BuiltInActivityTests
         Assert.NotNull(output);
         Assert.Contains("hello", (string)output!);
     }
+
+    [Fact]
+    public async Task HttpActivity_Returns_Raw_Text_For_NonJson_Body()
+    {
+        var handler = new FakeHandler { Body = "<html>error</html>" };
+        var activity = new HttpActivity(new HttpClient(handler));
+
+        var output = await activity.ExecuteAsync(new TestActivityContext(new JsonObject
+        {
+            ["url"] = "https://example.com/error",
+        }), CancellationToken.None);
+
+        Assert.Equal("<html>error</html>", output!.ToString());
+    }
+
+    [Fact]
+    public async Task CommandLineActivity_Throws_On_NonZero_Exit()
+    {
+        var activity = new CommandLineActivity();
+
+        await Assert.ThrowsAsync<BatonorException>(() => activity.ExecuteAsync(new TestActivityContext(new JsonObject
+        {
+            ["executable"] = "cmd.exe",
+            ["args"] = new JsonArray(JsonValue.Create("/c"), JsonValue.Create("exit"), JsonValue.Create("1")),
+            ["captureStdout"] = true,
+        }), CancellationToken.None).AsTask());
+    }
 }

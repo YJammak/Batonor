@@ -23,7 +23,7 @@ public sealed class BatonorBuilder : IBatonorBuilder
     public IBatonorBuilder AddActivity(string name, IActivity activity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
-        _activities[name] = activity;
+        _activities[name] = activity ?? throw new ArgumentNullException(nameof(activity));
         return this;
     }
 

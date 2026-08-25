@@ -45,12 +45,30 @@ public sealed class CommandLineActivity : IActivity
         process.Start();
 
         var stdout = "";
-        if (psi.RedirectStandardOutput)
+        try
         {
-            stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            if (psi.RedirectStandardOutput)
+            {
+                stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+
+            if (process.ExitCode != 0)
+            {
+                throw new BatonorException($"Command '{executable}' exited with code {process.ExitCode}.");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+
+            throw;
         }
 
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
         return stdout;
     }
 }

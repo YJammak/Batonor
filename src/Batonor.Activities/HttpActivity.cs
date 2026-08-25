@@ -1,6 +1,7 @@
 using Batonor.Abstractions;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace Batonor.Activities;
@@ -16,7 +17,8 @@ public sealed class HttpActivity : IActivity
 
     public HttpActivity() : this(new HttpClient()) { }
 
-    public HttpActivity(HttpClient client) => _client = client;
+    public HttpActivity(HttpClient client)
+        => _client = client ?? throw new ArgumentNullException(nameof(client));
 
     public async ValueTask<object?> ExecuteAsync(IActivityContext context, CancellationToken cancellationToken)
     {
@@ -40,9 +42,23 @@ public sealed class HttpActivity : IActivity
             request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
         }
 
-        using var response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var responseText = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (input["timeoutMs"]?.GetValue<int>() is { } timeoutMs && timeoutMs > 0)
+        {
+            cts.CancelAfter(timeoutMs);
+        }
 
-        return JsonNode.Parse(responseText) ?? JsonValue.Create(responseText);
+        using var response = await _client.SendAsync(request, cts.Token).ConfigureAwait(false);
+        var responseText = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
+
+        try
+        {
+            return JsonNode.Parse(responseText) ?? JsonValue.Create(responseText);
+        }
+        catch (JsonException)
+        {
+            // Non-JSON body (e.g. an HTML error page or plain text) — surface the raw text.
+            return JsonValue.Create(responseText);
+        }
     }
 }
