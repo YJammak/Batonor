@@ -326,7 +326,7 @@ public sealed class WorkflowEngine
             case "choice": return await RunChoiceAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery);
             case "parallel": return await RunParallelAsync(node, index, context, cancellationToken, instance, isRecovery);
             case "decision": return await RunDecisionAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery);
-            default: await RunActivityAsync(node, context, cancellationToken, instance, isRecovery); return null;
+            default: await RunActivityAsync(node, context, cancellationToken, instance, isRecovery, frame); return null;
         }
     }
 
@@ -620,11 +620,13 @@ public sealed class WorkflowEngine
         ExecutionContext context,
         CancellationToken cancellationToken,
         WorkflowInstance instance,
-        bool isRecovery)
+        bool isRecovery,
+        ExecutionPosition? frame)
     {
-        if (isRecovery && node.Recovery == RecoveryPolicy.AtMostOnce)
+        if (isRecovery && frame is not null && node.Recovery == RecoveryPolicy.AtMostOnce)
         {
-            // Do not re-run an activity marked at-most-once on recovery (never duplicate).
+            // Skip only the AtMostOnce activity that was actually interrupted — the node the
+            // recovery frame points at. A later sibling that is also AtMostOnce still runs.
             return;
         }
 
