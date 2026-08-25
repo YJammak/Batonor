@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Batonor.Activities</RootNamespace>
+    <AssemblyName>Batonor.Activities</AssemblyName>
+    <Description>Batonor built-in activities (HTTP, command line).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Batonor.Abstractions\Batonor.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

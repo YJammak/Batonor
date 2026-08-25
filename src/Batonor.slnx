@@ -1,5 +1,6 @@
 <Solution>
   <Project Path="Batonor.Abstractions/Batonor.Abstractions.csproj" />
+  <Project Path="Batonor.Activities/Batonor.Activities.csproj" />
   <Project Path="Batonor.Core/Batonor.Core.csproj" />
   <Project Path="Batonor.Expressions/Batonor.Expressions.csproj" />
   <Project Path="Batonor.Json/Batonor.Json.csproj" />
