@@ -312,6 +312,65 @@ public class CrashRecoveryTests
     }
 
     [Fact]
+    public async Task Recover_Routes_A_Recorded_Decision_To_Its_Chosen_Branch()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var def = new WorkflowDefinition
+        {
+            Id = "decision-crash",
+            Version = 1,
+            Steps = new[]
+            {
+                new WorkflowNode { Id = "seq", Type = "sequence", Config = new JsonObject
+                { ["steps"] = new JsonArray(JsonValue.Create("pre"), JsonValue.Create("approve")) }},
+                new WorkflowNode { Id = "pre", Type = "record", Config = new JsonObject { ["value"] = "pre" } },
+                new WorkflowNode { Id = "approve", Type = "decision", Config = new JsonObject
+                {
+                    ["prompt"] = "Approve?",
+                    ["options"] = new JsonArray(new JsonObject { ["label"] = "Yes", ["value"] = "yes", ["isDefault"] = true }),
+                    ["branches"] = new JsonObject { ["yes"] = "ship", ["no"] = "cancel", ["default"] = "cancel" },
+                }},
+                new WorkflowNode { Id = "ship", Type = "record", Config = new JsonObject { ["value"] = "ship" } },
+                new WorkflowNode { Id = "cancel", Type = "record", Config = new JsonObject { ["value"] = "cancel" } },
+            },
+        };
+
+        // A crash checkpoint written while the routed "ship" branch was executing: the decision frame
+        // records ChosenBranch = ship, so recovery routes to ship — not the default branch (cancel).
+        var instance = new WorkflowInstance
+        {
+            InstanceId = "crash-d1",
+            DefinitionId = def.Id,
+            DefinitionVersion = 1,
+            Definition = def,
+            Variables = new JsonObject(),
+            Status = WorkflowStatus.Running,
+            Position = new ExecutionPosition
+            {
+                NodeId = "seq",
+                State = ExecutionPositionState.Running,
+                SequenceIndex = 1,
+                Child = new ExecutionPosition
+                {
+                    NodeId = "approve",
+                    State = ExecutionPositionState.Running,
+                    ChosenBranch = "ship",
+                    Child = new ExecutionPosition { NodeId = "ship", State = ExecutionPositionState.Running },
+                },
+            },
+        };
+        await store.SaveInstanceAsync(instance);
+
+        var recovered = await engine.RecoverAsync("crash-d1");
+
+        Assert.Equal(WorkflowStatus.Completed, recovered.Status);
+        Assert.Equal(new[] { "ship" }, RecordActivity.Calls.ToArray());
+    }
+
+    [Fact]
     public async Task StartAsync_Checkpoints_Running_State_Before_Activities()
     {
         var store = new RecordingStore();

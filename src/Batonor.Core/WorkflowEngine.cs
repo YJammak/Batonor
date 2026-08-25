@@ -587,25 +587,36 @@ public sealed class WorkflowEngine
             return new SuspendInfo(position, decision);
         }
 
-        // Resume: inject the chosen value, route to a branch, run it fresh.
-        var chosen = frame.SuspendedDecisionId is not null &&
-                     pendingChoices is not null &&
-                     pendingChoices.TryGetValue(frame.SuspendedDecisionId, out var value)
+        // Resume: inject the chosen value, route to a branch, run it fresh. During recovery there are
+        // no pendingChoices, so a decision frame that recorded its chosen branch (ChosenBranch) is what
+        // lets us resume the routed activity directly without re-consulting this decision (which, with
+        // no pendingChoices, would fall back to the default branch and run the wrong one).
+        var chosenValue = frame.SuspendedDecisionId is not null &&
+                          pendingChoices is not null &&
+                          pendingChoices.TryGetValue(frame.SuspendedDecisionId, out var value)
             ? value
             : null;
 
-        var route = ResolveDecisionRoute(node, chosen);
+        var route = frame.ChosenBranch ?? ResolveDecisionRoute(node, chosenValue);
         if (route is null)
         {
             return null;
         }
 
-        // Route the checkpoint to the chosen branch activity rather than leaving it pointing at the
-        // decision node. On a crash after the choice was made, recovery then resumes the routed
-        // activity directly and never re-consults this decision (which would otherwise fall through
-        // to the default branch and run the wrong one).
-        var routedCheckpoint = checkpointPosition is null ? Leaf(route) : ReplaceTerminal(checkpointPosition, Leaf(route));
-        return await RunNodeByIdAsync(route, index, context, cancellationToken, null, pendingChoices, instance, isRecovery, routedCheckpoint);
+        // Replace this decision's terminal frame with one that records the chosen branch, so a crash
+        // while the routed activity runs is recoverable. The routed activity runs with a non-null
+        // frame (frame.Child) so the AtMostOnce skip still applies to the interrupted node.
+        var decisionFrame = new ExecutionPosition
+        {
+            NodeId = node.Id,
+            State = ExecutionPositionState.Running,
+            ChosenBranch = route,
+            Child = Leaf(route),
+        };
+        var routedCheckpoint = checkpointPosition is null
+            ? decisionFrame
+            : ReplaceTerminal(checkpointPosition, decisionFrame);
+        return await RunNodeByIdAsync(route, index, context, cancellationToken, frame.Child, pendingChoices, instance, isRecovery, routedCheckpoint);
     }
 
     private static PendingDecision CreatePendingDecision(WorkflowNode node, ExecutionContext context, JsonObject config)
