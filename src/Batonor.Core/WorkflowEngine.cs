@@ -71,7 +71,7 @@ public sealed class WorkflowEngine
         {
             foreach (var root in GetRootNodes(definition))
             {
-                suspend = await RunNodeAsync(root, index, context, cancellationToken, null, null, instance, isRecovery: false);
+                suspend = await RunNodeAsync(root, index, context, cancellationToken, null, null, instance, isRecovery: false, Leaf(root.Id));
                 if (suspend is not null)
                 {
                     break;
@@ -178,7 +178,7 @@ public sealed class WorkflowEngine
             var rootFrame = instance.Position
                 ?? throw new BatonorException($"Instance '{instance.InstanceId}' is not suspended at a position.");
 
-            suspend = await RunNodeAsync(index[rootFrame.NodeId], index, context, cancellationToken, rootFrame, pendingChoices, instance, isRecovery: false);
+            suspend = await RunNodeAsync(index[rootFrame.NodeId], index, context, cancellationToken, rootFrame, pendingChoices, instance, isRecovery: false, Leaf(rootFrame.NodeId));
 
             if (suspend is null)
             {
@@ -265,7 +265,7 @@ public sealed class WorkflowEngine
         SuspendInfo? suspend = null;
         try
         {
-            suspend = await RunNodeAsync(index[rootFrame.NodeId], index, context, cancellationToken, rootFrame, null, instance, isRecovery: true);
+            suspend = await RunNodeAsync(index[rootFrame.NodeId], index, context, cancellationToken, rootFrame, null, instance, isRecovery: true, Leaf(rootFrame.NodeId));
 
             if (suspend is null)
             {
@@ -316,17 +316,18 @@ public sealed class WorkflowEngine
         ExecutionPosition? frame,
         IReadOnlyDictionary<string, string>? pendingChoices,
         WorkflowInstance instance,
-        bool isRecovery)
+        bool isRecovery,
+        ExecutionPosition? checkpointPosition)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         switch (node.Type)
         {
-            case "sequence": return await RunSequenceAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery);
-            case "choice": return await RunChoiceAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery);
-            case "parallel": return await RunParallelAsync(node, index, context, cancellationToken, instance, isRecovery);
-            case "decision": return await RunDecisionAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery);
-            default: await RunActivityAsync(node, context, cancellationToken, instance, isRecovery, frame); return null;
+            case "sequence": return await RunSequenceAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition);
+            case "choice": return await RunChoiceAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition);
+            case "parallel": return await RunParallelAsync(node, index, context, cancellationToken, instance, isRecovery, checkpointPosition);
+            case "decision": return await RunDecisionAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition);
+            default: await RunActivityAsync(node, context, cancellationToken, instance, isRecovery, frame, checkpointPosition); return null;
         }
     }
 
@@ -338,14 +339,15 @@ public sealed class WorkflowEngine
         ExecutionPosition? frame,
         IReadOnlyDictionary<string, string>? pendingChoices,
         WorkflowInstance instance,
-        bool isRecovery)
+        bool isRecovery,
+        ExecutionPosition? checkpointPosition)
     {
         if (!index.TryGetValue(id, out var node))
         {
             throw new WorkflowDefinitionException($"Referenced node '{id}' was not found.");
         }
 
-        return await RunNodeAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery);
+        return await RunNodeAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition);
     }
 
     private async Task<SuspendInfo?> RunSequenceAsync(
@@ -356,7 +358,8 @@ public sealed class WorkflowEngine
         ExecutionPosition? frame,
         IReadOnlyDictionary<string, string>? pendingChoices,
         WorkflowInstance instance,
-        bool isRecovery)
+        bool isRecovery,
+        ExecutionPosition? checkpointPosition)
     {
         if (node.Config?["steps"] is not JsonArray steps)
         {
@@ -372,7 +375,10 @@ public sealed class WorkflowEngine
             }
 
             var stepFrame = frame is not null && i == frame.SequenceIndex ? frame.Child : null;
-            var suspend = await RunNodeByIdAsync(id, index, context, cancellationToken, stepFrame, pendingChoices, instance, isRecovery);
+            var childCheckpoint = checkpointPosition is null
+                ? WrapSequence(node.Id, i, Leaf(id))
+                : ReplaceTerminal(checkpointPosition, WrapSequence(node.Id, i, Leaf(id)));
+            var suspend = await RunNodeByIdAsync(id, index, context, cancellationToken, stepFrame, pendingChoices, instance, isRecovery, childCheckpoint);
             if (suspend is not null)
             {
                 return suspend with { Position = WrapSequence(node.Id, i, suspend.Position) };
@@ -398,7 +404,8 @@ public sealed class WorkflowEngine
         ExecutionPosition? frame,
         IReadOnlyDictionary<string, string>? pendingChoices,
         WorkflowInstance instance,
-        bool isRecovery)
+        bool isRecovery,
+        ExecutionPosition? checkpointPosition)
     {
         if (node.Config?["branches"] is not JsonArray branches)
         {
@@ -413,7 +420,10 @@ public sealed class WorkflowEngine
         }
 
         var childFrame = frame is not null ? frame.Child : null;
-        var suspend = await RunNodeByIdAsync(target, index, context, cancellationToken, childFrame, pendingChoices, instance, isRecovery);
+        var childCheckpoint = checkpointPosition is null
+            ? WrapChoice(node.Id, target, Leaf(target))
+            : ReplaceTerminal(checkpointPosition, WrapChoice(node.Id, target, Leaf(target)));
+        var suspend = await RunNodeByIdAsync(target, index, context, cancellationToken, childFrame, pendingChoices, instance, isRecovery, childCheckpoint);
         if (suspend is not null)
         {
             return suspend with { Position = WrapChoice(node.Id, target, suspend.Position) };
@@ -429,6 +439,36 @@ public sealed class WorkflowEngine
         ChosenBranch = chosenBranch,
         Child = child,
     };
+
+    /// <summary>A checkpoint position for a single activity that is about to run.</summary>
+    private static ExecutionPosition Leaf(string nodeId) => new()
+    {
+        NodeId = nodeId,
+        State = ExecutionPositionState.Running,
+    };
+
+    /// <summary>
+    /// Rebuilds a checkpoint chain, replacing its terminal leaf frame with <paramref name="newTerminal"/>.
+    /// Used when a control-flow node nested inside another control flow extends the ancestor chain with
+    /// its own wrap + <see cref="Leaf"/> rather than dropping that ancestor prefix.
+    /// </summary>
+    private static ExecutionPosition ReplaceTerminal(ExecutionPosition chain, ExecutionPosition newTerminal)
+    {
+        if (chain.Child is not null)
+        {
+            return new ExecutionPosition
+            {
+                NodeId = chain.NodeId,
+                State = chain.State,
+                SequenceIndex = chain.SequenceIndex,
+                ChosenBranch = chain.ChosenBranch,
+                SuspendedDecisionId = chain.SuspendedDecisionId,
+                Child = ReplaceTerminal(chain.Child, newTerminal),
+            };
+        }
+
+        return newTerminal;
+    }
 
     private static string? SelectChoiceTarget(JsonArray branches, ExecutionContext context)
     {
@@ -462,7 +502,8 @@ public sealed class WorkflowEngine
         ExecutionContext context,
         CancellationToken cancellationToken,
         WorkflowInstance instance,
-        bool isRecovery)
+        bool isRecovery,
+        ExecutionPosition? checkpointPosition)
     {
         if (node.Config?["branches"] is not JsonArray branches)
         {
@@ -470,7 +511,7 @@ public sealed class WorkflowEngine
         }
 
         var tasks = branches.OfType<JsonArray>()
-            .Select(branch => RunBranchAsync(branch, index, context.Clone(), cancellationToken, instance, isRecovery))
+            .Select(branch => RunBranchAsync(branch, index, context.Clone(), cancellationToken, instance, isRecovery, checkpointPosition))
             .ToList();
 
         var join = ParseJoin(node);
@@ -496,13 +537,14 @@ public sealed class WorkflowEngine
         ExecutionContext context,
         CancellationToken cancellationToken,
         WorkflowInstance instance,
-        bool isRecovery)
+        bool isRecovery,
+        ExecutionPosition? checkpointPosition)
     {
         foreach (var step in branch)
         {
             if (step is JsonValue v && v.TryGetValue<string>(out var id))
             {
-                var suspend = await RunNodeByIdAsync(id, index, context, cancellationToken, null, null, instance, isRecovery);
+                var suspend = await RunNodeByIdAsync(id, index, context, cancellationToken, null, null, instance, isRecovery, checkpointPosition);
                 if (suspend is not null)
                 {
                     throw new NotSupportedException(
@@ -520,7 +562,8 @@ public sealed class WorkflowEngine
         ExecutionPosition? frame,
         IReadOnlyDictionary<string, string>? pendingChoices,
         WorkflowInstance instance,
-        bool isRecovery)
+        bool isRecovery,
+        ExecutionPosition? checkpointPosition)
     {
         // Fresh hit: create a pending decision and suspend.
         if (frame is null)
@@ -549,7 +592,7 @@ public sealed class WorkflowEngine
             return null;
         }
 
-        return await RunNodeByIdAsync(route, index, context, cancellationToken, null, pendingChoices, instance, isRecovery);
+        return await RunNodeByIdAsync(route, index, context, cancellationToken, null, pendingChoices, instance, isRecovery, checkpointPosition);
     }
 
     private static PendingDecision CreatePendingDecision(WorkflowNode node, ExecutionContext context, JsonObject config)
@@ -621,13 +664,24 @@ public sealed class WorkflowEngine
         CancellationToken cancellationToken,
         WorkflowInstance instance,
         bool isRecovery,
-        ExecutionPosition? frame)
+        ExecutionPosition? frame,
+        ExecutionPosition? checkpointPosition)
     {
         if (isRecovery && frame is not null && node.Recovery == RecoveryPolicy.AtMostOnce)
         {
             // Skip only the AtMostOnce activity that was actually interrupted — the node the
             // recovery frame points at. A later sibling that is also AtMostOnce still runs.
             return;
+        }
+
+        // Checkpoint the Running state before executing, so a crash mid-activity leaves a
+        // recoverable Running snapshot whose Position points at the activity about to run.
+        if (_store is not null)
+        {
+            instance.Status = WorkflowStatus.Running;
+            instance.Variables = context.Snapshot();
+            instance.Position = checkpointPosition;
+            await _store.SaveInstanceAsync(instance, cancellationToken);
         }
 
         var activity = context.ResolveActivity(node.Type)

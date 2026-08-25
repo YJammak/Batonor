@@ -12,7 +12,7 @@ namespace Batonor.Tests;
 /// </summary>
 public class CrashRecoveryTests
 {
-    private static WorkflowEngine CreateEngine(InMemoryWorkflowStore store)
+    private static WorkflowEngine CreateEngine(IWorkflowStore store)
     {
         var activities = new Dictionary<string, IActivity>
         {
@@ -219,5 +219,63 @@ public class CrashRecoveryTests
         // Both nodes are AtMostOnce, but only the interrupted node "a" is skipped —
         // the sibling "b" must still execute (regression for the whole-subtree skip).
         Assert.Equal(new[] { "b" }, RecordActivity.Calls.ToArray());
+    }
+
+    private sealed class RecordingStore : IWorkflowStore
+    {
+        private readonly InMemoryWorkflowStore _inner = new();
+        public bool SawRunningSave { get; private set; }
+
+        public Task SaveDefinitionAsync(WorkflowDefinition definition, CancellationToken ct = default) =>
+            _inner.SaveDefinitionAsync(definition, ct);
+
+        public Task<WorkflowDefinition?> LoadDefinitionAsync(string id, int version, CancellationToken ct = default) =>
+            _inner.LoadDefinitionAsync(id, version, ct);
+
+        public async Task SaveInstanceAsync(WorkflowInstance instance, CancellationToken ct = default)
+        {
+            if (instance.Status == WorkflowStatus.Running) SawRunningSave = true;
+            await _inner.SaveInstanceAsync(instance, ct);
+        }
+
+        public Task<WorkflowInstance?> LoadInstanceAsync(string instanceId, CancellationToken ct = default) =>
+            _inner.LoadInstanceAsync(instanceId, ct);
+
+        public Task<IReadOnlyList<PendingDecision>> ListPendingDecisionsAsync(CancellationToken ct = default) =>
+            _inner.ListPendingDecisionsAsync(ct);
+
+        public Task CompleteDecisionAsync(string decisionId, string choice, CancellationToken ct = default) =>
+            _inner.CompleteDecisionAsync(decisionId, choice, ct);
+
+        public Task SavePendingDecisionAsync(PendingDecision decision, CancellationToken ct = default) =>
+            _inner.SavePendingDecisionAsync(decision, ct);
+
+        public Task<PendingDecision?> LoadPendingDecisionAsync(string decisionId, CancellationToken ct = default) =>
+            _inner.LoadPendingDecisionAsync(decisionId, ct);
+    }
+
+    [Fact]
+    public async Task StartAsync_Checkpoints_Running_State_Before_Activities()
+    {
+        var store = new RecordingStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var def = new WorkflowDefinition
+        {
+            Id = "cp",
+            Version = 1,
+            Steps = new[]
+            {
+                new WorkflowNode { Id = "s", Type = "sequence", Config = new JsonObject
+                { ["steps"] = new JsonArray(JsonValue.Create("a"), JsonValue.Create("b")) }},
+                new WorkflowNode { Id = "a", Type = "record", Config = new JsonObject { ["value"] = "a" } },
+                new WorkflowNode { Id = "b", Type = "record", Config = new JsonObject { ["value"] = "b" } },
+            },
+        };
+
+        await engine.StartAsync(def, null);
+
+        Assert.True(store.SawRunningSave, "Expected at least one Running checkpoint before an activity.");
     }
 }
