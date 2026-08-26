@@ -65,3 +65,12 @@ TestResults/
 # OS
 .DS_Store
 Thumbs.db
+
+# Workflow/design notes (kept local, not part of the repo)
+doc/
+
+# CodeGraph index (derived)
+.codegraph/
+
+# Local NuGet source for the AOT smoke host's Batonor.SourceGen package
+NuGet.config
