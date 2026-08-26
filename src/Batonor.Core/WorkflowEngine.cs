@@ -907,13 +907,22 @@ public sealed class WorkflowEngine
             JsonNode n => n,
             string s => JsonValue.Create(s),
             bool b => JsonValue.Create(b),
+            byte b => JsonValue.Create(b),
+            sbyte sb => JsonValue.Create(sb),
+            short sh => JsonValue.Create(sh),
+            ushort us => JsonValue.Create(us),
             int i => JsonValue.Create(i),
+            uint ui => JsonValue.Create(ui),
             long l => JsonValue.Create(l),
+            ulong ul => JsonValue.Create(ul),
             float f => JsonValue.Create(f),
             double d => JsonValue.Create(d),
             decimal m => JsonValue.Create(m),
+            Guid g => JsonValue.Create(g),
+            DateTime dt => JsonValue.Create(dt),
+            DateTimeOffset dto => JsonValue.Create(dto),
             _ => throw new BatonorException(
-                $"Activity output of type '{value.GetType()}' is not serializable; return a JsonNode or a JSON primitive."),
+                $"Activity output of type '{value.GetType()}' is not serializable; return a JsonNode or one of the supported JSON primitives (string, bool, numeric, Guid, DateTime, DateTimeOffset)."),
         };
     }
 }

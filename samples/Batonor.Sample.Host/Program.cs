@@ -73,6 +73,13 @@ finally
     store?.Dispose();
     if (File.Exists(dbPath))
     {
-        File.Delete(dbPath);
+        try
+        {
+            File.Delete(dbPath);
+        }
+        catch (IOException)
+        {
+            // Best-effort cleanup; the SQLite file handle may still be held.
+        }
     }
 }

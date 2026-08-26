@@ -33,7 +33,18 @@ public sealed class HttpActivity : IActivity
         {
             foreach (var (key, value) in headers)
             {
-                request.Headers.TryAddWithoutValidation(key, value?.GetValue<string>());
+                // Content-specific headers (e.g. Content-Type) are owned by the request content and
+                // would throw if added to request.Headers; the body is always JSON here, so skip them.
+                if (key is "Content-Type" or "Content-Length" or "Content-Range" or "Content-Disposition")
+                {
+                    continue;
+                }
+
+                var headerValue = value?.ToString();
+                if (headerValue is not null)
+                {
+                    request.Headers.TryAddWithoutValidation(key, headerValue);
+                }
             }
         }
 

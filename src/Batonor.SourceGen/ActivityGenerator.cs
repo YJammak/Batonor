@@ -19,7 +19,7 @@ public sealed class ActivityGenerator : IIncrementalGenerator
     {
         var candidates = context.SyntaxProvider.ForAttributeWithMetadataName(
             "Batonor.Abstractions.ActivityAttribute",
-            static (node, _) => node is ClassDeclarationSyntax,
+            static (node, _) => node is ClassDeclarationSyntax or RecordDeclarationSyntax,
             static (ctx, _) => ctx);
 
         var registrations = candidates
