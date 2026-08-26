@@ -70,7 +70,7 @@ public sealed class WorkflowEngine
         {
             foreach (var root in GetRootNodes(definition))
             {
-                suspend = await RunNodeAsync(root, index, context, cancellationToken, null, null, instance, isRecovery: false, Leaf(root.Id));
+                suspend = await RunNodeAsync(root, index, context, cancellationToken, null, null, instance, isRecovery: false, Leaf(root.Id)).ConfigureAwait(false);
                 if (suspend is not null)
                 {
                     break;
@@ -92,7 +92,7 @@ public sealed class WorkflowEngine
 
                 instance.Status = WorkflowStatus.Suspended;
                 instance.Position = suspend.Position;
-                await _store.SavePendingDecisionAsync(suspend.Decision, cancellationToken);
+                await _store.SavePendingDecisionAsync(suspend.Decision, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -123,7 +123,7 @@ public sealed class WorkflowEngine
 
         if (_store is not null)
         {
-            await _store.SaveInstanceAsync(instance, cancellationToken);
+            await _store.SaveInstanceAsync(instance, cancellationToken).ConfigureAwait(false);
         }
 
         return instance;
@@ -145,10 +145,10 @@ public sealed class WorkflowEngine
             throw new BatonorException("A workflow store is required to resume a decision.");
         }
 
-        var pending = await _store.LoadPendingDecisionAsync(decisionId, cancellationToken)
+        var pending = await _store.LoadPendingDecisionAsync(decisionId, cancellationToken).ConfigureAwait(false)
             ?? throw new BatonorException($"Unknown pending decision '{decisionId}'.");
 
-        var instance = await _store.LoadInstanceAsync(pending.InstanceId, cancellationToken)
+        var instance = await _store.LoadInstanceAsync(pending.InstanceId, cancellationToken).ConfigureAwait(false)
             ?? throw new BatonorException($"Instance '{pending.InstanceId}' not found.");
 
         var definition = instance.Definition
@@ -157,7 +157,12 @@ public sealed class WorkflowEngine
         var index = BuildIndex(definition);
 
         // Reject an unrecognised human choice (a caller error, not a workflow failure).
-        if (!IsValidChoice(index[pending.NodeId], choice))
+        if (!index.TryGetValue(pending.NodeId, out var decisionNode))
+        {
+            throw new BatonorException($"Node '{pending.NodeId}' not found in definition '{definition.Id}'.");
+        }
+
+        if (!IsValidChoice(decisionNode, choice))
         {
             throw new BatonorException(
                 $"Choice '{choice}' is not a valid option for decision node '{pending.NodeId}'.");
@@ -177,7 +182,12 @@ public sealed class WorkflowEngine
             var rootFrame = instance.Position
                 ?? throw new BatonorException($"Instance '{instance.InstanceId}' is not suspended at a position.");
 
-            suspend = await RunNodeAsync(index[rootFrame.NodeId], index, context, cancellationToken, rootFrame, pendingChoices, instance, isRecovery: false, Leaf(rootFrame.NodeId));
+            if (!index.TryGetValue(rootFrame.NodeId, out var resumeNode))
+            {
+                throw new BatonorException($"Node '{rootFrame.NodeId}' not found in definition '{definition.Id}'.");
+            }
+
+            suspend = await RunNodeAsync(resumeNode, index, context, cancellationToken, rootFrame, pendingChoices, instance, isRecovery: false, Leaf(rootFrame.NodeId)).ConfigureAwait(false);
 
             if (suspend is null)
             {
@@ -218,11 +228,11 @@ public sealed class WorkflowEngine
 
         if (suspend is not null && instance.Status == WorkflowStatus.Suspended)
         {
-            await _store.SavePendingDecisionAsync(suspend.Decision, cancellationToken);
+            await _store.SavePendingDecisionAsync(suspend.Decision, cancellationToken).ConfigureAwait(false);
         }
 
-        await _store.SaveInstanceAsync(instance, cancellationToken);
-        await _store.CompleteDecisionAsync(decisionId, choice, cancellationToken);
+        await _store.SaveInstanceAsync(instance, cancellationToken).ConfigureAwait(false);
+        await _store.CompleteDecisionAsync(decisionId, choice, cancellationToken).ConfigureAwait(false);
         return instance;
     }
 
@@ -242,7 +252,7 @@ public sealed class WorkflowEngine
             throw new BatonorException("A workflow store is required to recover an instance.");
         }
 
-        var instance = await _store.LoadInstanceAsync(instanceId, cancellationToken)
+        var instance = await _store.LoadInstanceAsync(instanceId, cancellationToken).ConfigureAwait(false)
             ?? throw new BatonorException($"Instance '{instanceId}' not found.");
 
         if (instance.Status != WorkflowStatus.Running)
@@ -264,7 +274,12 @@ public sealed class WorkflowEngine
         SuspendInfo? suspend = null;
         try
         {
-            suspend = await RunNodeAsync(index[rootFrame.NodeId], index, context, cancellationToken, rootFrame, null, instance, isRecovery: true, Leaf(rootFrame.NodeId));
+            if (!index.TryGetValue(rootFrame.NodeId, out var resumeNode))
+            {
+                throw new BatonorException($"Node '{rootFrame.NodeId}' not found in definition '{definition.Id}'.");
+            }
+
+            suspend = await RunNodeAsync(resumeNode, index, context, cancellationToken, rootFrame, null, instance, isRecovery: true, Leaf(rootFrame.NodeId)).ConfigureAwait(false);
 
             if (suspend is null)
             {
@@ -300,10 +315,10 @@ public sealed class WorkflowEngine
         instance.Variables = context.Snapshot();
         if (suspend is not null && instance.Status == WorkflowStatus.Suspended)
         {
-            await _store.SavePendingDecisionAsync(suspend.Decision, cancellationToken);
+            await _store.SavePendingDecisionAsync(suspend.Decision, cancellationToken).ConfigureAwait(false);
         }
 
-        await _store.SaveInstanceAsync(instance, cancellationToken);
+        await _store.SaveInstanceAsync(instance, cancellationToken).ConfigureAwait(false);
         return instance;
     }
 
@@ -322,11 +337,11 @@ public sealed class WorkflowEngine
 
         switch (node.Type)
         {
-            case "sequence": return await RunSequenceAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition);
-            case "choice": return await RunChoiceAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition);
-            case "parallel": return await RunParallelAsync(node, index, context, cancellationToken, instance, isRecovery, checkpointPosition);
-            case "decision": return await RunDecisionAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition);
-            default: await RunActivityAsync(node, context, cancellationToken, instance, isRecovery, frame, checkpointPosition); return null;
+            case "sequence": return await RunSequenceAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition).ConfigureAwait(false);
+            case "choice": return await RunChoiceAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition).ConfigureAwait(false);
+            case "parallel": return await RunParallelAsync(node, index, context, cancellationToken, instance, isRecovery, checkpointPosition).ConfigureAwait(false);
+            case "decision": return await RunDecisionAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition).ConfigureAwait(false);
+            default: await RunActivityAsync(node, context, cancellationToken, instance, isRecovery, frame, checkpointPosition).ConfigureAwait(false); return null;
         }
     }
 
@@ -346,7 +361,7 @@ public sealed class WorkflowEngine
             throw new WorkflowDefinitionException($"Referenced node '{id}' was not found.");
         }
 
-        return await RunNodeAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition);
+        return await RunNodeAsync(node, index, context, cancellationToken, frame, pendingChoices, instance, isRecovery, checkpointPosition).ConfigureAwait(false);
     }
 
     private async Task<SuspendInfo?> RunSequenceAsync(
@@ -377,7 +392,7 @@ public sealed class WorkflowEngine
             var childCheckpoint = checkpointPosition is null
                 ? WrapSequence(node.Id, i, Leaf(id))
                 : ReplaceTerminal(checkpointPosition, WrapSequence(node.Id, i, Leaf(id)));
-            var suspend = await RunNodeByIdAsync(id, index, context, cancellationToken, stepFrame, pendingChoices, instance, isRecovery, childCheckpoint);
+            var suspend = await RunNodeByIdAsync(id, index, context, cancellationToken, stepFrame, pendingChoices, instance, isRecovery, childCheckpoint).ConfigureAwait(false);
             if (suspend is not null)
             {
                 return suspend with { Position = WrapSequence(node.Id, i, suspend.Position) };
@@ -422,7 +437,7 @@ public sealed class WorkflowEngine
         var childCheckpoint = checkpointPosition is null
             ? WrapChoice(node.Id, target, Leaf(target))
             : ReplaceTerminal(checkpointPosition, WrapChoice(node.Id, target, Leaf(target)));
-        var suspend = await RunNodeByIdAsync(target, index, context, cancellationToken, childFrame, pendingChoices, instance, isRecovery, childCheckpoint);
+        var suspend = await RunNodeByIdAsync(target, index, context, cancellationToken, childFrame, pendingChoices, instance, isRecovery, childCheckpoint).ConfigureAwait(false);
         if (suspend is not null)
         {
             return suspend with { Position = WrapChoice(node.Id, target, suspend.Position) };
@@ -551,7 +566,7 @@ public sealed class WorkflowEngine
         {
             if (step is JsonValue v && v.TryGetValue<string>(out var id))
             {
-                var suspend = await RunNodeByIdAsync(id, index, context, cancellationToken, null, null, instance, isRecovery, checkpointPosition);
+                var suspend = await RunNodeByIdAsync(id, index, context, cancellationToken, null, null, instance, isRecovery, checkpointPosition).ConfigureAwait(false);
                 if (suspend is not null)
                 {
                     throw new NotSupportedException(
@@ -615,7 +630,7 @@ public sealed class WorkflowEngine
         var routedCheckpoint = checkpointPosition is null
             ? decisionFrame
             : ReplaceTerminal(checkpointPosition, decisionFrame);
-        return await RunNodeByIdAsync(route, index, context, cancellationToken, frame.Child, pendingChoices, instance, isRecovery, routedCheckpoint);
+        return await RunNodeByIdAsync(route, index, context, cancellationToken, frame.Child, pendingChoices, instance, isRecovery, routedCheckpoint).ConfigureAwait(false);
     }
 
     private static PendingDecision CreatePendingDecision(WorkflowNode node, ExecutionContext context, JsonObject config)
@@ -709,7 +724,7 @@ public sealed class WorkflowEngine
             instance.Status = WorkflowStatus.Running;
             instance.Variables = context.Snapshot();
             instance.Position = checkpointPosition;
-            await _store.SaveInstanceAsync(instance, cancellationToken);
+            await _store.SaveInstanceAsync(instance, cancellationToken).ConfigureAwait(false);
         }
 
         var input = ResolveConfig(node.Config, context);

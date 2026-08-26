@@ -394,4 +394,35 @@ public class CrashRecoveryTests
 
         Assert.True(store.SawRunningSave, "Expected at least one Running checkpoint before an activity.");
     }
+
+    [Fact]
+    public async Task CompleteDecision_Surfaces_Domain_Errors_To_Caller()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        // 构造一个 Running 实例，其 Position 指向一个不存在的 node id => RecoverAsync 应抛领域错误而非吞成 Failed。
+        var def = new WorkflowDefinition
+        {
+            Id = "x",
+            Version = 1,
+            Steps = new[] { new WorkflowNode { Id = "a", Type = "record", Config = new JsonObject { ["value"] = "a" } } },
+        };
+        var instance = new WorkflowInstance
+        {
+            InstanceId = "c1",
+            DefinitionId = def.Id,
+            DefinitionVersion = 1,
+            Definition = def,
+            Variables = new JsonObject(),
+            Status = WorkflowStatus.Running,
+            Position = new ExecutionPosition { NodeId = "does-not-exist", State = ExecutionPositionState.Running },
+        };
+        await store.SaveInstanceAsync(instance);
+
+        // Position 指向不存在的 node：当前是 KeyNotFoundException（被 catch(Exception) 吞成 Failed）。
+        // 修复后应抛 BatonorException（清晰领域错误）。
+        await Assert.ThrowsAsync<BatonorException>(() => engine.RecoverAsync("c1"));
+    }
 }
