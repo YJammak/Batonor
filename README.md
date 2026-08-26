@@ -110,5 +110,3 @@ dotnet publish samples/Batonor.Sample.Host -c Release -p:PublishAot=true -r win-
 ```
 
 The published binary prints `AOT_SMOKE_OK:...` on success.
-
-> The design details live in `doc/Batonor-设计文档.md` (Chinese).
