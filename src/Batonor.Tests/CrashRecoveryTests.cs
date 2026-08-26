@@ -396,7 +396,7 @@ public class CrashRecoveryTests
     }
 
     [Fact]
-    public async Task CompleteDecision_Surfaces_Domain_Errors_To_Caller()
+    public async Task Recover_Surfaces_Domain_Errors_To_Caller()
     {
         var store = new InMemoryWorkflowStore();
         var engine = CreateEngine(store);
@@ -421,8 +421,35 @@ public class CrashRecoveryTests
         };
         await store.SaveInstanceAsync(instance);
 
-        // Position 指向不存在的 node：当前是 KeyNotFoundException（被 catch(Exception) 吞成 Failed）。
-        // 修复后应抛 BatonorException（清晰领域错误）。
         await Assert.ThrowsAsync<BatonorException>(() => engine.RecoverAsync("c1"));
+    }
+
+    [Fact]
+    public async Task CompleteDecision_Surfaces_Missing_Defined_Node()
+    {
+        var store = new InMemoryWorkflowStore();
+        var engine = CreateEngine(store);
+        RecordActivity.Calls.Clear();
+
+        var def = new WorkflowDefinition
+        {
+            Id = "x",
+            Version = 1,
+            Steps = new[] { new WorkflowNode { Id = "a", Type = "record", Config = new JsonObject { ["value"] = "a" } } },
+        };
+        await store.SaveInstanceAsync(new WorkflowInstance
+        {
+            InstanceId = "i1",
+            DefinitionId = def.Id,
+            DefinitionVersion = 1,
+            Definition = def,
+            Variables = new JsonObject(),
+            Status = WorkflowStatus.Suspended,
+            Position = new ExecutionPosition { NodeId = "a", State = ExecutionPositionState.Running, SuspendedDecisionId = "d1" },
+        });
+        // The pending decision refers to a node not present in the definition snapshot.
+        await store.SavePendingDecisionAsync(new PendingDecision { DecisionId = "d1", InstanceId = "i1", NodeId = "does-not-exist" });
+
+        await Assert.ThrowsAsync<BatonorException>(() => engine.CompleteDecisionAsync("d1", "yes"));
     }
 }

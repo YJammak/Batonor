@@ -38,9 +38,12 @@ public sealed class ActivityGenerator : IIncrementalGenerator
         {
             if (items.IsDefaultOrEmpty) return;
             foreach (var group in items.GroupBy(r => r.Namespace))
-                spc.AddSource(
-                    $"ActivityRegistry.{Sanitize(EffectiveNamespace(group.Key))}.g.cs",
-                    EmitForGroup(group));
+            {
+                var ns = EffectiveNamespace(group.Key);
+                // Sanitize is lossy (e.g. "Foo.Bar" and "Foo_Bar" collide), so append a stable hash of
+                // the raw namespace to keep the emitted hint name unique and the build deterministic.
+                spc.AddSource($"ActivityRegistry.{Sanitize(ns)}.{StableHash(ns)}.g.cs", EmitForGroup(group));
+            }
         });
     }
 
@@ -50,7 +53,7 @@ public sealed class ActivityGenerator : IIncrementalGenerator
         var body = new StringBuilder();
         foreach (var r in registrations)
         {
-            body.AppendLine($"            [\"{r.Name}\"] = () => new {r.Type}(),");
+            body.AppendLine($"            [{EscapeLiteral(r.Name)}] = () => new {r.Type}(),");
         }
 
         var source = $$"""
@@ -84,6 +87,26 @@ public sealed class ActivityGenerator : IIncrementalGenerator
 
     private static string Sanitize(string ns) =>
         new string(ns.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+
+    /// <summary>Deterministic FNV-1a hash of a string, used to de-duplicate hint names.</summary>
+    private static string StableHash(string s)
+    {
+        unchecked
+        {
+            var hash = 2166136261u;
+            foreach (var c in s)
+            {
+                hash ^= c;
+                hash *= 16777619u;
+            }
+
+            return hash.ToString("x8");
+        }
+    }
+
+    /// <summary>Quotes and escapes a string for use as a C# string-literal (attribute activity name).</summary>
+    private static string EscapeLiteral(string s) =>
+        "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 
     private readonly record struct Registration(string Name, string Type, string Namespace);
 }
