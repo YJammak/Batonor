@@ -10,7 +10,8 @@ namespace Batonor.SourceGen;
 /// <summary>
 /// Emits an AOT-safe <c>ActivityRegistry : IActivityResolver</c> that registers every class annotated
 /// with <c>[Activity("name")]</c> by its attribute name, constructing the activity lazily via an
-/// expression that statically references the concrete type (so Native AOT roots it).
+/// expression that statically references the concrete type (so Native AOT roots it). One registry is
+/// emitted per containing namespace; an empty/global namespace maps to <c>Batonor</c>.
 /// </summary>
 [Generator(LanguageNames.CSharp)]
 public sealed class ActivityGenerator : IIncrementalGenerator
@@ -36,15 +37,18 @@ public sealed class ActivityGenerator : IIncrementalGenerator
         context.RegisterSourceOutput(registrations, static (spc, items) =>
         {
             if (items.IsDefaultOrEmpty) return;
-            spc.AddSource("ActivityRegistry.g.cs", Emit(items));
+            foreach (var group in items.GroupBy(r => r.Namespace))
+                spc.AddSource(
+                    $"ActivityRegistry.{Sanitize(EffectiveNamespace(group.Key))}.g.cs",
+                    EmitForGroup(group));
         });
     }
 
-    private static SourceText Emit(IReadOnlyList<Registration> items)
+    private static SourceText EmitForGroup(IEnumerable<Registration> registrations)
     {
-        var ns = items[0].Namespace;
+        var ns = EffectiveNamespace(registrations.First().Namespace);
         var body = new StringBuilder();
-        foreach (var r in items)
+        foreach (var r in registrations)
         {
             body.AppendLine($"            [\"{r.Name}\"] = () => new {r.Type}(),");
         }
@@ -57,7 +61,7 @@ public sealed class ActivityGenerator : IIncrementalGenerator
             using System.Linq;
             using Batonor.Abstractions;
 
-            namespace {{(ns.Length == 0 ? "Batonor" : ns)}};
+            namespace {{ns}};
 
             public sealed class ActivityRegistry : IActivityResolver
             {
@@ -75,6 +79,11 @@ public sealed class ActivityGenerator : IIncrementalGenerator
 
         return SourceText.From(source, Encoding.UTF8);
     }
+
+    private static string EffectiveNamespace(string ns) => ns.Length == 0 ? "Batonor" : ns;
+
+    private static string Sanitize(string ns) =>
+        new string(ns.Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
 
     private readonly record struct Registration(string Name, string Type, string Namespace);
 }

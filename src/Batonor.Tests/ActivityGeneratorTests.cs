@@ -36,6 +36,9 @@ public class ActivityGeneratorTests
             .ToArray();
     }
 
+    private static CSharpCompilation BuildCompilation(string source) =>
+        CreateCompilation(CSharpSyntaxTree.ParseText(source));
+
     private static CSharpCompilation CreateCompilation(SyntaxTree sourceTree) =>
         CSharpCompilation.Create(
             "Sample",
@@ -81,6 +84,45 @@ public class ActivityGeneratorTests
 
         var result = await activity!.ExecuteAsync(new FakeContext(), default);
         Assert.Equal("hi", result);
+    }
+
+    [Fact]
+    public void Generator_Distributes_Registries_By_Namespace()
+    {
+        const string source = """
+            using System;
+            using System.Threading;
+            using System.Threading.Tasks;
+            using Batonor.Abstractions;
+
+            namespace First
+            {
+                [Activity("a")]
+                public sealed class A : IActivity
+                {
+                    public ValueTask<object?> ExecuteAsync(IActivityContext c, CancellationToken t) => ValueTask.FromResult<object?>("a");
+                }
+            }
+
+            namespace Second
+            {
+                [Activity("b")]
+                public sealed class B : IActivity
+                {
+                    public ValueTask<object?> ExecuteAsync(IActivityContext c, CancellationToken t) => ValueTask.FromResult<object?>("b");
+                }
+            }
+            """;
+
+        var compilation = BuildCompilation(source);
+        var driver = CSharpGeneratorDriver.Create(new ActivityGenerator());
+        driver.RunGeneratorsAndUpdateCompilation(compilation, out var output, out _);
+
+        var generated = string.Join("\n", output.SyntaxTrees.Where(t => !compilation.SyntaxTrees.Contains(t)).Select(t => t.ToString()));
+        Assert.Contains("namespace First", generated);
+        Assert.Contains("namespace Second", generated);
+        Assert.Contains("[\"a\"]", generated);
+        Assert.Contains("[\"b\"]", generated);
     }
 
     private sealed class FakeContext : Batonor.Abstractions.IActivityContext
