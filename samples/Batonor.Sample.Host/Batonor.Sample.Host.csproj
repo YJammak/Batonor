@@ -15,6 +15,6 @@
     <ProjectReference Include="..\..\src\Batonor.Expressions\Batonor.Expressions.csproj" />
     <ProjectReference Include="..\..\src\Batonor.Json\Batonor.Json.csproj" />
     <ProjectReference Include="..\..\src\Batonor.Persistence.Sqlite\Batonor.Persistence.Sqlite.csproj" />
-    <ProjectReference Include="..\..\src\Batonor.SourceGen\Batonor.SourceGen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
+    <ProjectReference Include="..\..\src\Batonor.SourceGen\Batonor.SourceGen.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>
