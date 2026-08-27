@@ -1,13 +1,11 @@
 using Batonor.Abstractions;
 using Batonor.Core;
 using Batonor.Expressions;
-using Batonor.Json;
 using Batonor.Persistence.Sqlite;
 using Batonor.Sample.Host;
-using System.Text.Json;
 
-// Batonor AOT smoke host: loads a workflow definition from workflow.json (a config-driven
-// definition, deserialized via the source-generated BatonorJsonContext), runs it through a
+// Batonor AOT smoke host: loads a workflow definition from workflow.yaml (a config-driven
+// definition, deserialized via the AOT-safe YamlWorkflowSerializer), runs it through a
 // source-generated ActivityRegistry and a SQLite store, then reports success or failure.
 // Pooling is disabled so disposing the store actually closes the file handle, letting the
 // temporary database be deleted on exit.
@@ -15,10 +13,10 @@ var dbPath = Path.Combine(Path.GetTempPath(), $"batonor-aot-{Guid.NewGuid():N}.d
 SqliteWorkflowStore? store = null;
 try
 {
-    var definitionPath = Path.Combine(AppContext.BaseDirectory, "workflow.json");
-    var definitionJson = File.ReadAllText(definitionPath);
-    var definition = JsonSerializer.Deserialize(definitionJson, BatonorJsonContext.Default.WorkflowDefinition)
-        ?? throw new InvalidOperationException("Could not deserialize workflow.json.");
+    var definitionPath = Path.Combine(AppContext.BaseDirectory, "workflow.yaml");
+    var definitionYaml = File.ReadAllText(definitionPath);
+    var definition = new Batonor.Yaml.YamlWorkflowSerializer().DeserializeDefinition(definitionYaml)
+        ?? throw new InvalidOperationException("Could not deserialize workflow.yaml.");
 
     store = new SqliteWorkflowStore($"Data Source={dbPath};Pooling=False");
     var engine = new WorkflowEngine(

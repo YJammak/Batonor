@@ -1,9 +1,0 @@
-{
-  "id": "aot-smoke",
-  "version": 1,
-  "steps": [
-    { "id": "seq", "type": "sequence", "config": { "steps": ["hello", "double"] } },
-    { "id": "hello", "type": "hello", "config": { "name": "AOT" }, "output": "greeting" },
-    { "id": "double", "type": "double", "config": { "value": 21.0 }, "output": "result" }
-  ]
-}

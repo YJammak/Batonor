@@ -14,13 +14,14 @@
     <ProjectReference Include="..\..\src\Batonor.Core\Batonor.Core.csproj" />
     <ProjectReference Include="..\..\src\Batonor.Expressions\Batonor.Expressions.csproj" />
     <ProjectReference Include="..\..\src\Batonor.Json\Batonor.Json.csproj" />
+    <ProjectReference Include="..\..\src\Batonor.Yaml\Batonor.Yaml.csproj" />
     <ProjectReference Include="..\..\src\Batonor.Persistence.Sqlite\Batonor.Persistence.Sqlite.csproj" />
     <!-- Batonor.SourceGen is consumed as a NuGet analyzer package (a project reference to a
          netstandard2.0 generator would be flagged NETSDK1207 under PublishAot). -->
     <PackageReference Include="Batonor.SourceGen" Version="1.0.0" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
-    <!-- The workflow definition is config-driven: loaded from workflow.json at runtime. -->
-    <Content Include="workflow.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- The workflow definition is config-driven: loaded from workflow.yaml at runtime. -->
+    <Content Include="workflow.yaml" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
