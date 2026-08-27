@@ -5,6 +5,7 @@
   <Project Path="Batonor.Core/Batonor.Core.csproj" />
   <Project Path="Batonor.Expressions/Batonor.Expressions.csproj" />
   <Project Path="Batonor.Json/Batonor.Json.csproj" />
+  <Project Path="Batonor.Yaml/Batonor.Yaml.csproj" />
   <Project Path="Batonor.Persistence.InMemory/Batonor.Persistence.InMemory.csproj" />
   <Project Path="Batonor.Persistence.Sqlite/Batonor.Persistence.Sqlite.csproj" />
   <Project Path="Batonor.SourceGen/Batonor.SourceGen.csproj" />

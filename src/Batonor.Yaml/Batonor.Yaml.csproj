@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Batonor.Yaml</RootNamespace>
+    <AssemblyName>Batonor.Yaml</AssemblyName>
+    <Description>YAML workflow-definition serializer (AOT-safe: YamlStream → JsonNode → BatonorJsonContext).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Batonor.Abstractions\Batonor.Abstractions.csproj" />
+    <ProjectReference Include="..\Batonor.Json\Batonor.Json.csproj" />
+  </ItemGroup>
+</Project>
