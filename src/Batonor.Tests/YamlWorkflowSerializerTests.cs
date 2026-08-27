@@ -65,4 +65,57 @@ public class YamlWorkflowSerializerTests
         Assert.Equal("echo", back.Steps[0].Type);
         Assert.Equal(1, back.Steps[0].Config!["x"]!.GetValue<int>());
     }
+
+    [Fact]
+    public void Keyword_Strings_Round_Trip()
+    {
+        var ser = new YamlWorkflowSerializer();
+
+        var def = new WorkflowDefinition
+        {
+            Id = "wf",
+            Steps = new[]
+            {
+                new WorkflowNode { Id = "a", Type = "echo", Config = new JsonObject
+                {
+                    ["null"] = "null",
+                    ["true"] = "true",
+                    ["tilde"] = "~",
+                    ["num"] = "21",
+                    ["empty"] = "",
+                }},
+            },
+        };
+
+        var yaml = ser.SerializeDefinition(def);
+        var back = ser.DeserializeDefinition(yaml);
+
+        Assert.Equal("null", back.Steps[0].Config!["null"]!.GetValue<string>());
+        Assert.Equal("true", back.Steps[0].Config!["true"]!.GetValue<string>());
+        Assert.Equal("~", back.Steps[0].Config!["tilde"]!.GetValue<string>());
+        Assert.Equal("21", back.Steps[0].Config!["num"]!.GetValue<string>());
+        Assert.Equal("", back.Steps[0].Config!["empty"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void YAML_Null_Variants_Deserialize_To_Null()
+    {
+        const string yaml = """
+            id: wf
+            steps:
+              - id: a
+                type: echo
+                config:
+                  v1: ~
+                  v2: Null
+                  v3: NULL
+            """;
+        var ser = new YamlWorkflowSerializer();
+
+        var def = ser.DeserializeDefinition(yaml);
+
+        Assert.Null(def.Steps[0].Config!["v1"]);
+        Assert.Null(def.Steps[0].Config!["v2"]);
+        Assert.Null(def.Steps[0].Config!["v3"]);
+    }
 }

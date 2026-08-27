@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
 namespace Batonor.Yaml;
@@ -18,7 +19,8 @@ internal static class YamlNodeConverter
     public static YamlNode ToYamlNode(JsonNode? node) => node switch
     {
         null => new YamlScalarNode("null"),
-        JsonValue v => v.TryGetValue<string>(out var s) ? new YamlScalarNode(s)
+        JsonValue v => v.TryGetValue<string>(out var s)
+            ? new YamlScalarNode(s) { Style = NeedsQuoting(s) ? ScalarStyle.SingleQuoted : ScalarStyle.Any }
             : new YamlScalarNode(v.ToString()),
         JsonArray arr => new YamlSequenceNode(arr.Select(ToYamlNode)),
         JsonObject obj => new YamlMappingNode(obj.Select(kv => new KeyValuePair<YamlNode, YamlNode>(
@@ -29,15 +31,35 @@ internal static class YamlNodeConverter
     private static JsonNode? ScalarToJson(YamlScalarNode scalar)
     {
         var text = scalar.Value ?? "";
+
+        // Quoted scalars are always strings in YAML, regardless of their content.
+        if (scalar.Style is ScalarStyle.SingleQuoted or ScalarStyle.DoubleQuoted)
+        {
+            return JsonValue.Create(text);
+        }
+
         if (text.Length == 0) return null;
-        if (text == "null") return null;
-        if (text == "true") return JsonValue.Create(true);
-        if (text == "false") return JsonValue.Create(false);
+        if (text is "~" or "null" or "Null" or "NULL") return null;
+        if (text is "true" or "True" or "TRUE") return JsonValue.Create(true);
+        if (text is "false" or "False" or "FALSE") return JsonValue.Create(false);
+        if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l))
+            return JsonValue.Create(l);
         if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var d))
             return JsonValue.Create(d);
-        if (long.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var l))
-            return JsonValue.Create(l);
         return JsonValue.Create(text);
+    }
+
+    /// <summary>True when a string scalar must be quoted to avoid being re-parsed as null/bool/number.</summary>
+    private static bool NeedsQuoting(string s)
+    {
+        if (s.Length == 0) return true;
+        if (s is "~" or "null" or "Null" or "NULL" or "true" or "True" or "TRUE" or "false" or "False" or "FALSE")
+        {
+            return true;
+        }
+
+        return long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)
+            || double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
     }
 
     private static JsonArray SequenceToJson(YamlSequenceNode seq) =>
