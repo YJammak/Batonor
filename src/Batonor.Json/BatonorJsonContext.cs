@@ -7,6 +7,7 @@ namespace Batonor.Json;
 /// <summary>
 /// AOT-safe System.Text.Json source-generated serialization context for Batonor's persisted types.
 /// </summary>
+[JsonSourceGenerationOptions(PropertyNameCaseInsensitive = true)]
 [JsonSerializable(typeof(WorkflowDefinition))]
 [JsonSerializable(typeof(WorkflowInstance))]
 [JsonSerializable(typeof(WorkflowNode))]
